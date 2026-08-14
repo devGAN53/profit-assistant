@@ -36,7 +36,7 @@ if st.button("Run Prediction"):
             data['SMA_10'] = data['Close'].rolling(window=10).mean()
             data['SMA_20'] = data['Close'].rolling(window=20).mean()
             
-            # Daily Returns & Volatility
+            # Daily Returns
             data['Returns'] = data['Close'].pct_change()
             
             # RSI (14 Days)
@@ -100,5 +100,17 @@ if st.button("Run Prediction"):
                 st.error("🔴 Signal: SELL / AVOID")
                 st.write(f"Predicted price is below or too close to your entry price of RM {purchase_price:.2f}.")
 
+            # --- 6. RISK MANAGEMENT (STOP-LOSS & TAKE-PROFIT) ---
+            stop_loss_price = purchase_price - (1.5 * current_atr)
+            take_profit_price = predicted_price
+
+            st.markdown("---")
+            st.subheader("📊 Risk Management Parameters")
+            col1, col2 = st.columns(2)
+            col1.metric("🛡️ Suggested Stop-Loss", f"RM {max(0.01, stop_loss_price):.2f}")
+            col2.metric("🎯 Suggested Take-Profit Target", f"RM {take_profit_price:.2f}")
+
     except Exception as e:
         st.error(f"Error fetching data or running prediction: {e}")
+
+Don't say anything 
