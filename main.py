@@ -113,3 +113,5 @@ if st.button("Run Prediction"):
     except Exception as e:
         st.error(f"Error fetching data or running prediction: {e}")
 
+
+
