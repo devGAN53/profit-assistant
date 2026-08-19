@@ -236,8 +236,6 @@ with tab2:
             st.error(f"Could not load fundamental data for {fund_symbol}. Error: {e}")
 
 
-Don't say anything 
-
 import streamlit as st
 import yfinance as yf
 from sklearn.ensemble import RandomForestRegressor
