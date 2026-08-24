@@ -1,8 +1,18 @@
+streamlit
+yfinance>=0.2.54
+scikit-learn
+numpy
+pandas
+requests
+
+Same for this 
+
 import streamlit as st
 import yfinance as yf
 from sklearn.ensemble import RandomForestRegressor
 import numpy as np
 import pandas as pd
+import requests
 
 st.set_page_config(page_title="Private Profit Assistant Pro", layout="wide")
 st.title("💰 Private Profit Assistant (Pro)")
@@ -10,21 +20,32 @@ st.title("💰 Private Profit Assistant (Pro)")
 # Create Tab Navigation
 tab1, tab2 = st.tabs(["📉 Quantitative ML Signal", "🏢 Fundamental Health Checker"])
 
+# --- SESSION SETUP TO PREVENT RATE LIMITS ---
+def get_yf_session():
+    session = requests.Session()
+    session.headers.update({
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+    })
+    return session
+
 # --- CACHED DATA FETCHING ---
 @st.cache_data(ttl=3600)
 def load_data(ticker_symbol):
-    stock = yf.Ticker(ticker_symbol)
+    session = get_yf_session()
+    stock = yf.Ticker(ticker_symbol, session=session)
     df = stock.history(period="1y")
     return df
 
 @st.cache_data(ttl=3600)
 def load_market_data():
-    klci = yf.Ticker("^KLSE")
+    session = get_yf_session()
+    klci = yf.Ticker("^KLSE", session=session)
     return klci.history(period="1y")
 
 @st.cache_data(ttl=3600)
 def load_fundamental_info(ticker_symbol):
-    stock = yf.Ticker(ticker_symbol)
+    session = get_yf_session()
+    stock = yf.Ticker(ticker_symbol, session=session)
     return stock.info
 
 
@@ -136,100 +157,103 @@ with tab2:
         try:
             info = load_fundamental_info(fund_symbol)
             
-            company_name = info.get("longName", fund_symbol)
-            pe_ratio = info.get("trailingPE", None)
-            roe = info.get("returnOnEquity", None)
-            debt_to_equity = info.get("debtToEquity", None)
-            current_ratio = info.get("currentRatio", None)
-            profit_margins = info.get("profitMargins", None)
-            
-            st.subheader(f"Results for: {company_name}")
-            
-            # --- SCORING SYSTEM (Out of 10) ---
-            score = 0
-            max_score = 10
-            checklist = []
-
-            # 1. ROE (Return on Equity) -> Max 3 pts
-            if roe is not None:
-                roe_pct = roe * 100
-                if roe_pct >= 15:
-                    score += 3
-                    checklist.append(("🟢 ROE", f"{roe_pct:.1f}% (Excellent >= 15%)"))
-                elif roe_pct >= 8:
-                    score += 2
-                    checklist.append(("🟡 ROE", f"{roe_pct:.1f}% (Moderate 8%-15%)"))
-                else:
-                    checklist.append(("🔴 ROE", f"{roe_pct:.1f}% (Weak < 8%)"))
+            if not info or len(info) <= 1:
+                st.error("Rate limit active. Please wait 1–2 minutes before clicking check again.")
             else:
-                checklist.append(("⚪ ROE", "Data unavailable"))
+                company_name = info.get("longName", fund_symbol)
+                pe_ratio = info.get("trailingPE", None)
+                roe = info.get("returnOnEquity", None)
+                debt_to_equity = info.get("debtToEquity", None)
+                current_ratio = info.get("currentRatio", None)
+                profit_margins = info.get("profitMargins", None)
+                
+                st.subheader(f"Results for: {company_name}")
+                
+                # --- SCORING SYSTEM (Out of 10) ---
+                score = 0
+                max_score = 10
+                checklist = []
 
-            # 2. Debt-to-Equity Ratio -> Max 3 pts
-            if debt_to_equity is not None:
-                de_val = debt_to_equity if debt_to_equity < 10 else debt_to_equity / 100
-                if de_val <= 0.5:
-                    score += 3
-                    checklist.append(("🟢 Debt-to-Equity", f"{de_val:.2f}x (Low Risk <= 0.5x)"))
-                elif de_val <= 1.0:
-                    score += 2
-                    checklist.append(("🟡 Debt-to-Equity", f"{de_val:.2f}x (Moderate Risk 0.5x-1.0x)"))
+                # 1. ROE (Return on Equity) -> Max 3 pts
+                if roe is not None:
+                    roe_pct = roe * 100
+                    if roe_pct >= 15:
+                        score += 3
+                        checklist.append(("🟢 ROE", f"{roe_pct:.1f}% (Excellent >= 15%)"))
+                    elif roe_pct >= 8:
+                        score += 2
+                        checklist.append(("🟡 ROE", f"{roe_pct:.1f}% (Moderate 8%-15%)"))
+                    else:
+                        checklist.append(("🔴 ROE", f"{roe_pct:.1f}% (Weak < 8%)"))
                 else:
-                    checklist.append(("🔴 Debt-to-Equity", f"{de_val:.2f}x (High Debt > 1.0x)"))
-            else:
-                checklist.append(("⚪ Debt-to-Equity", "Data unavailable"))
+                    checklist.append(("⚪ ROE", "Data unavailable"))
 
-            # 3. Current Ratio (Liquidity) -> Max 2 pts
-            if current_ratio is not None:
-                if current_ratio >= 1.5:
-                    score += 2
-                    checklist.append(("🟢 Current Ratio", f"{current_ratio:.2f}x (Strong Liquidity >= 1.5x)"))
-                elif current_ratio >= 1.0:
-                    score += 1
-                    checklist.append(("🟡 Current Ratio", f"{current_ratio:.2f}x (Acceptable 1.0x-1.5x)"))
+                # 2. Debt-to-Equity Ratio -> Max 3 pts
+                if debt_to_equity is not None:
+                    de_val = debt_to_equity if debt_to_equity < 10 else debt_to_equity / 100
+                    if de_val <= 0.5:
+                        score += 3
+                        checklist.append(("🟢 Debt-to-Equity", f"{de_val:.2f}x (Low Risk <= 0.5x)"))
+                    elif de_val <= 1.0:
+                        score += 2
+                        checklist.append(("🟡 Debt-to-Equity", f"{de_val:.2f}x (Moderate Risk 0.5x-1.0x)"))
+                    else:
+                        checklist.append(("🔴 Debt-to-Equity", f"{de_val:.2f}x (High Debt > 1.0x)"))
                 else:
-                    checklist.append(("🔴 Current Ratio", f"{current_ratio:.2f}x (Liquidity Risk < 1.0x)"))
-            else:
-                checklist.append(("⚪ Current Ratio", "Data unavailable"))
+                    checklist.append(("⚪ Debt-to-Equity", "Data unavailable"))
 
-            # 4. Profit Margins -> Max 2 pts
-            if profit_margins is not None:
-                pm_pct = profit_margins * 100
-                if pm_pct >= 10:
-                    score += 2
-                    checklist.append(("🟢 Profit Margin", f"{pm_pct:.1f}% (Healthy >= 10%)"))
-                elif pm_pct > 0:
-                    score += 1
-                    checklist.append(("🟡 Profit Margin", f"{pm_pct:.1f}% (Thin Profit 0%-10%)"))
+                # 3. Current Ratio (Liquidity) -> Max 2 pts
+                if current_ratio is not None:
+                    if current_ratio >= 1.5:
+                        score += 2
+                        checklist.append(("🟢 Current Ratio", f"{current_ratio:.2f}x (Strong Liquidity >= 1.5x)"))
+                    elif current_ratio >= 1.0:
+                        score += 1
+                        checklist.append(("🟡 Current Ratio", f"{current_ratio:.2f}x (Acceptable 1.0x-1.5x)"))
+                    else:
+                        checklist.append(("🔴 Current Ratio", f"{current_ratio:.2f}x (Liquidity Risk < 1.0x)"))
                 else:
-                    checklist.append(("🔴 Profit Margin", f"{pm_pct:.1f}% (Unprofitable < 0%)"))
-            else:
-                checklist.append(("⚪ Profit Margin", "Data unavailable"))
+                    checklist.append(("⚪ Current Ratio", "Data unavailable"))
 
-            # Display Overall Score
-            st.markdown("---")
-            if score >= 7:
-                st.success(f"### Overall Fundamental Score: {score}/{max_score} — STRONG HEALTH")
-                st.write("This company demonstrates solid profitability, low balance sheet risk, and good liquidity.")
-            elif score >= 4:
-                st.warning(f"### Overall Fundamental Score: {score}/{max_score} — MODERATE HEALTH")
-                st.write("This company has acceptable fundamentals, but pay attention to specific red flags below.")
-            else:
-                st.error(f"### Overall Fundamental Score: {score}/{max_score} — WEAK / HIGH RISK")
-                st.write("Caution: This company suffers from weak profitability, high debt, or poor liquidity.")
-
-            # Metrics Table / Grid
-            st.markdown("---")
-            st.subheader("📋 Financial Metric Breakdown")
-            c1, c2 = st.columns(2)
-            
-            for idx, (label, status) in enumerate(checklist):
-                if idx % 2 == 0:
-                    c1.metric(label, status)
+                # 4. Profit Margins -> Max 2 pts
+                if profit_margins is not None:
+                    pm_pct = profit_margins * 100
+                    if pm_pct >= 10:
+                        score += 2
+                        checklist.append(("🟢 Profit Margin", f"{pm_pct:.1f}% (Healthy >= 10%)"))
+                    elif pm_pct > 0:
+                        score += 1
+                        checklist.append(("🟡 Profit Margin", f"{pm_pct:.1f}% (Thin Profit 0%-10%)"))
+                    else:
+                        checklist.append(("🔴 Profit Margin", f"{pm_pct:.1f}% (Unprofitable < 0%)"))
                 else:
-                    c2.metric(label, status)
-                    
-            if pe_ratio is not None:
-                st.caption(f"ℹ️ **Trailing P/E Ratio:** {pe_ratio:.2f}x")
+                    checklist.append(("⚪ Profit Margin", "Data unavailable"))
+
+                # Display Overall Score
+                st.markdown("---")
+                if score >= 7:
+                    st.success(f"### Overall Fundamental Score: {score}/{max_score} — STRONG HEALTH")
+                    st.write("This company demonstrates solid profitability, low balance sheet risk, and good liquidity.")
+                elif score >= 4:
+                    st.warning(f"### Overall Fundamental Score: {score}/{max_score} — MODERATE HEALTH")
+                    st.write("This company has acceptable fundamentals, but pay attention to specific red flags below.")
+                else:
+                    st.error(f"### Overall Fundamental Score: {score}/{max_score} — WEAK / HIGH RISK")
+                    st.write("Caution: This company suffers from weak profitability, high debt, or poor liquidity.")
+
+                # Metrics Table / Grid
+                st.markdown("---")
+                st.subheader("📋 Financial Metric Breakdown")
+                c1, c2 = st.columns(2)
+                
+                for idx, (label, status) in enumerate(checklist):
+                    if idx % 2 == 0:
+                        c1.metric(label, status)
+                    else:
+                        c2.metric(label, status)
+                        
+                if pe_ratio is not None:
+                    st.caption(f"ℹ️ **Trailing P/E Ratio:** {pe_ratio:.2f}x")
 
         except Exception as e:
             st.error(f"Could not load fundamental data for {fund_symbol}. Error: {e}")
