@@ -1,4 +1,6 @@
 streamlit
-yfinance
+yfinance>=0.2.54
 scikit-learn
-matplotlib
+numpy
+pandas
+requests
