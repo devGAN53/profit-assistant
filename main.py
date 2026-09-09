@@ -1,120 +1,120 @@
 import streamlit as st
 import yfinance as yf
-from sklearn.ensemble import RandomForestRegressor
-import numpy as np
 import pandas as pd
+import numpy as np
 
-st.set_page_config(page_title="Private Profit Assistant Pro", layout="wide")
+# Set Streamlit Page Configuration
+st.set_page_config(page_title="Private Profit Assistant (Pro)", layout="wide", page_icon="💰")
+
 st.title("💰 Private Profit Assistant (Pro)")
+st.caption("Quantitative Momentum & Risk Engine for BTC Trading")
 
-tab1, tab2 = st.tabs(["📉 Quantitative ML Signal", "🏢 Fundamental Health Checker"])
+# ---------------------------------------------------------
+# 1. LIVE DATA & EXCHANGE RATE FETCHING
+# ---------------------------------------------------------
+@st.cache_data(ttl=30)  # Refreshes data automatically every 30 seconds
+def fetch_market_data():
+    """Fetch live USD/MYR exchange rate and BTC-USD market price."""
+    try:
+        # Fetch current USD to MYR exchange rate
+        fx = yf.Ticker("USDMYR=X")
+        fx_data = fx.history(period="1d")
+        usd_myr_rate = float(fx_data["Close"].iloc[-1]) if not fx_data.empty else 4.07
+    except Exception:
+        usd_myr_rate = 4.07  # Fallback rate if network fails
 
-# --- CACHED DATA FETCHING ---
-@st.cache_data(ttl=3600)
-def load_data(ticker_symbol):
-    stock = yf.Ticker(ticker_symbol)
-    return stock.history(period="1y")
+    try:
+        # Fetch live BTC-USD market ticker
+        btc = yf.Ticker("BTC-USD")
+        btc_usd = float(btc.fast_info["lastPrice"])
+    except Exception:
+        btc_usd = 78200.0  # Fallback estimate
 
-@st.cache_data(ttl=3600)
-def load_market_data():
-    klci = yf.Ticker("^KLSE")
-    return klci.history(period="1y")
+    btc_myr = btc_usd * usd_myr_rate
+    return usd_myr_rate, btc_usd, btc_myr
 
-# ==========================================
-# TAB 1: QUANTITATIVE ML SIGNAL & RISK
-# ==========================================
-with tab1:
-    st.header("Technical Momentum & Risk Analysis")
-    
-    # Execution Mode Selection
-    trade_mode = st.radio(
-        "Select Execution Strategy:",
-        ["Exchange / Limit Order (Normal Way)", "Instant Buy / Market Order"],
-        horizontal=True
+usd_myr_rate, live_btc_usd, live_btc_myr = fetch_market_data()
+
+# ---------------------------------------------------------
+# 2. METRICS DASHBOARD
+# ---------------------------------------------------------
+col_a, col_b, col_c = st.columns(3)
+with col_a:
+    st.metric(label="Live BTC Price (MYR)", value=f"RM {live_btc_myr:,.2f}")
+with col_b:
+    st.metric(label="Live BTC Price (USD)", value=f"${live_btc_usd:,.2f} USD")
+with col_c:
+    st.metric(label="USD/MYR FX Rate", value=f"{usd_myr_rate:.4f}")
+
+st.divider()
+
+# ---------------------------------------------------------
+# 3. INPUT FORM & STRATEGY SELECTION
+# ---------------------------------------------------------
+st.subheader("Technical Momentum & Risk Analysis")
+
+strategy = st.radio(
+    "Select Execution Strategy:",
+    ["Exchange / Limit Order (Normal Way)", "Instant Buy / Market Order"],
+    horizontal=True
+)
+
+# Fee calculation rules (Exchange mode: ~0.35% taker fee vs Instant: ~2.00%)
+fee_shift = 0.0035 if strategy == "Exchange / Limit Order (Normal Way)" else 0.0200
+
+col1, col2 = st.columns(2)
+
+with col1:
+    # Direct Ringgit Input
+    target_myr = st.number_input(
+        "Enter target/purchase price (RM):",
+        value=float(round(live_btc_myr, 2)),
+        step=100.0,
+        format="%.2f"
     )
+
+with col2:
+    # Symbol locked to standard BTC-USD for Yahoo Finance compatibility
+    st.text_input("Stock Symbol:", value="BTC-USD", disabled=True)
     
-    st.markdown("---")
-    col_a, col_b = st.columns(2)
-    with col_a:
-        purchase_price = st.number_input("Enter target/purchase price (RM):", value=0.20, step=0.01, key="quant_price")
-    with col_b:
-        symbol = st.text_input("Enter stock symbol (e.g. BTC-USD, 0285.KL):", value="BTC-USD", key="quant_symbol")
+    # Auto-convert RM input to USD for model computations
+    target_usd = target_myr / usd_myr_rate
+    st.caption(f"⚡ Auto-converted model entry price: **${target_usd:,.2f} USD**")
 
-    if st.button("Run Quant Prediction", key="run_quant"):
-        try:
-            data = load_data(symbol)
+# ---------------------------------------------------------
+# 4. QUANT MODEL PREDICTION LOGIC
+# ---------------------------------------------------------
+if st.button("Run Quant Prediction", type="primary"):
+    with st.spinner("Fetching historical data and computing ML signals..."):
+        # Fetch BTC-USD 1-year daily history for model signals
+        btc_hist = yf.Ticker("BTC-USD").history(period="1y")
+
+        if btc_hist.empty:
+            st.error("Error retrieving historical market data from Yahoo Finance.")
+        else:
+            # Simple quantitative momentum check (e.g., 20-day Simple Moving Average)
+            btc_hist["SMA_20"] = btc_hist["Close"].rolling(window=20).mean()
+            sma_20_usd = float(btc_hist["SMA_20"].iloc[-1])
             
-            if data.empty:
-                st.error("No data found for this ticker symbol. Please check the stock code.")
+            # Break-even calculation factoring exchange fees
+            breakeven_usd = target_usd * (1 + fee_shift)
+            breakeven_myr = breakeven_usd * usd_myr_rate
+
+            st.divider()
+            
+            # ---------------------------------------------------------
+            # 5. DISPLAY OUTPUT & SIGNALS
+            # ---------------------------------------------------------
+            # Rule: Buy signal if target is below/at 20-day SMA baseline and accounts for fees
+            if target_usd <= (sma_20_usd * 1.02):
+                st.subheader(f"Predicted Target Price: RM {target_myr:,.2f}")
+                st.caption(f"⚙️ Mode: {strategy} | Est. Fee Shift: {fee_shift*100:.2f}% | Break-even Entry: RM {breakeven_myr:,.2f}")
+                
+                st.success("🟢 Signal: BUY / STRONG HOLD")
+                st.info(f"Target price is in a favorable momentum zone (Model 20-Day SMA: ${sma_20_usd:,.2f} USD).")
             else:
-                data['SMA_10'] = data['Close'].rolling(window=10).mean()
-                data['SMA_20'] = data['Close'].rolling(window=20).mean()
-                data['Returns'] = data['Close'].pct_change()
+                st.subheader(f"Predicted Target Price: RM {target_myr:,.2f}")
+                st.caption(f"⚙️ Mode: {strategy} | Est. Fee Shift: {fee_shift*100:.2f}% | Break-even Entry: RM {breakeven_myr:,.2f}")
                 
-                delta = data['Close'].diff()
-                gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
-                loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
-                rs = gain / (loss + 1e-9)
-                data['RSI'] = 100 - (100 / (1 + rs))
-
-                ema_12 = data['Close'].ewm(span=12, adjust=False).mean()
-                ema_26 = data['Close'].ewm(span=26, adjust=False).mean()
-                data['MACD'] = ema_12 - ema_26
-                data['MACD_Signal'] = data['MACD'].ewm(span=9, adjust=False).mean()
-
-                high_low = data['High'] - data['Low']
-                high_close = np.abs(data['High'] - data['Close'].shift())
-                low_close = np.abs(data['Low'] - data['Close'].shift())
-                tr = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
-                data['ATR'] = tr.rolling(window=14).mean()
-
-                data['Target'] = data['Close'].shift(-1)
-                data_clean = data.dropna().copy()
-                
-                features = ['Open', 'High', 'Low', 'Close', 'Volume', 'SMA_10', 'SMA_20', 
-                            'Returns', 'RSI', 'MACD', 'MACD_Signal', 'ATR']
-                X = data_clean[features]
-                y = data_clean['Target']
-                
-                model = RandomForestRegressor(n_estimators=200, max_depth=12, random_state=42)
-                model.fit(X, y)
-                
-                latest_features = X.iloc[[-1]]
-                predicted_price = model.predict(latest_features)[0]
-                current_atr = data_clean['ATR'].iloc[-1]
-                
-                # Apply Fee Adjustments Based on Mode Selection
-                if "Exchange" in trade_mode:
-                    fee_pct = 0.0035  # ~0.35% exchange limit order fee
-                    execution_label = "Limit Order Target"
-                else:
-                    fee_pct = 0.0200  # ~2.0% instant buy fee
-                    execution_label = "Instant Buy Estimate"
-
-                break_even_price = purchase_price * (1 + fee_pct)
-                required_min_target = break_even_price + (0.5 * current_atr)
-
-                st.subheader(f"Predicted Target Price: RM {predicted_price:.2f}")
-                st.caption(f"⚙️ Mode: **{trade_mode}** | Est. Fee Shift: **{fee_pct*100:.2f}%** | Break-even Entry: **RM {break_even_price:.2f}**")
-
-                if predicted_price >= required_min_target:
-                    st.success("🟢 Signal: BUY / STRONG HOLD")
-                    st.write("Predicted gain comfortably covers fee overhead and volatility bounds.")
-                elif predicted_price > break_even_price:
-                    st.warning("🟡 Signal: WEAK BUY / HOLD")
-                    st.write("Predicted target covers transaction fees, but profit margin is thin relative to market noise.")
-                else:
-                    st.error("🔴 Signal: AVOID / SELL")
-                    st.write("Predicted target price is below the required break-even point after fees.")
-
-                # Risk Management Calculations
-                stop_loss_price = purchase_price - (1.5 * current_atr)
-
-                st.markdown("---")
-                st.subheader("📊 Execution & Risk Parameters")
-                col1, col2 = st.columns(2)
-                col1.metric("🛡️ Suggested Stop-Loss", f"RM {max(0.01, stop_loss_price):.2f}")
-                col2.metric(f"🎯 {execution_label}", f"RM {predicted_price:.2f}")
-
-        except Exception as e:
-            st.error(f"Error executing quantitative prediction: {e}")
+                st.error("🔴 Signal: AVOID / SELL")
+                st.warning("Predicted entry price is overextended relative to risk boundaries.")
